@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ERP 数据管理平台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航栏 -->
+        <header class="navbar">
+            <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+            <div class="navbar-brand">
+                <span class="brand-icon">📊</span>
+                <h1>ERP 数据管理平台</h1>
+            </div>
+            <div class="navbar-info">
+                <span class="badge">{{ modules|length }} 模块</span>
+                <span class="badge">{{ all_tables|length }} 表</span>
+            </div>
+        </header>
+
+        <div class="layout">
+            <!-- 侧边栏 -->
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-search">
+                    <input type="text" id="tableSearch" placeholder="搜索表名..." oninput="filterTables()" />
+                </div>
+                <nav class="sidebar-menu" id="sidebarMenu">
+                    {% for module in modules %}
+                    <div class="menu-group">
+                        <div class="menu-group-header" onclick="toggleGroup(this)">
+                            <span class="menu-group-icon">▶</span>
+                            <span class="menu-group-title">{{ module.name }}</span>
+                            <span class="menu-group-badge">{{ module.count }}</span>
+                        </div>
+                        <div class="menu-group-items">
+                            {% for table in module.tables %}
+                            <a href="/table/{{ table }}" class="menu-item {% if current_table == table %}active{% endif %}" data-table="{{ table }}">
+                                📄 {{ table }}
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </nav>
+            </aside>
+
+            <!-- 主内容 -->
+            <main class="main-content">
+                {% if current_table %}
+                    <div class="table-header">
+                        <div>
+                            <h2 class="table-title">📄 {{ current_table }}</h2>
+                            <p class="table-meta">共 <strong>{{ total }}</strong> 条记录</p>
+                        </div>
+                        <div class="table-actions">
+                            {% if columns %}
+                            <form class="search-form" method="GET" action="/table/{{ current_table }}">
+                                <input type="text" name="search" value="{{ search }}" placeholder="搜索文本字段..." />
+                                <button type="submit">🔍</button>
+                                {% if search %}
+                                <a href="/table/{{ current_table }}" class="search-clear">✕</a>
+                                {% endif %}
+                            </form>
+                            <button class="btn btn-primary" onclick="openAddModal()">＋ 新增</button>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    {% if error %}
+                    <div class="error-alert">{{ error }}</div>
+                    {% endif %}
+
+                    {% if columns %}
+                        {% if rows %}
+                        <div class="table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th class="row-num">#</th>
+                                        {% for col in columns %}
+                                        <th>
+                                            <span class="col-name">{{ col.name }}</span>
+                                            <span class="col-type">{{ col.type }}</span>
+                                            {% if col.pk %}<span class="col-pk">PK</span>{% endif %}
+                                        </th>
+                                        {% endfor %}
+                                        <th class="action-col">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in rows %}
+                                    <tr>
+                                        <td class="row-num">{{ (page - 1) * page_size + loop.index }}</td>
+                                        {% for col in columns %}
+                                        <td class="cell-{{ col.type.lower() }}">
+                                            {% if row[col.name] is none %}
+                                                <span class="null">NULL</span>
+                                            {% else %}
+                                                {{ row[col.name] }}
+                                            {% endif %}
+                                        </td>
+                                        {% endfor %}
+                                        <td class="action-col">
+                                            <button class="btn-action btn-edit" onclick="openEditModal('{{ current_table }}', {{ loop.index0 }})" title="编辑">✎</button>
+                                            <button class="btn-action btn-delete" onclick="confirmDelete('{{ current_table }}', {{ loop.index0 }})" title="删除">✕</button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 分页 -->
+                        <div class="pagination">
+                            <span class="page-info">第 {{ page }}/{{ total_pages }} 页</span>
+                            <div class="page-btns">
+                                <a href="/table/{{ current_table }}?page=1{% if search %}&search={{ search }}{% endif %}" class="page-btn {% if page <= 1 %}disabled{% endif %}">«</a>
+                                <a href="/table/{{ current_table }}?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}" class="page-btn {% if page <= 1 %}disabled{% endif %}">‹</a>
+                                {% for p in range([1, page - 2]|max, [total_pages + 1, page + 3]|min) %}
+                                <a href="/table/{{ current_table }}?page={{ p }}{% if search %}&search={{ search }}{% endif %}" class="page-btn {% if p == page %}active{% endif %}">{{ p }}</a>
+                                {% endfor %}
+                                <a href="/table/{{ current_table }}?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}" class="page-btn {% if page >= total_pages %}disabled{% endif %}">›</a>
+                                <a href="/table/{{ current_table }}?page={{ total_pages }}{% if search %}&search={{ search }}{% endif %}" class="page-btn {% if page >= total_pages %}disabled{% endif %}">»</a>
+                            </div>
+                            <div class="page-size">
+                                <label>每页
+                                    <select onchange="changePageSize('{{ current_table }}', this.value)">
+                                        <option value="20" {% if page_size == 20 %}selected{% endif %}>20</option>
+                                        <option value="50" {% if page_size == 50 %}selected{% endif %}>50</option>
+                                        <option value="100" {% if page_size == 100 %}selected{% endif %}>100</option>
+                                        <option value="200" {% if page_size == 200 %}selected{% endif %}>200</option>
+                                    </select>
+                                    条
+                                </label>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="empty-state">暂无数据</div>
+                        {% endif %}
+                    {% endif %}
+                {% else %}
+                    <div class="welcome">
+                        <div class="welcome-icon">📊</div>
+                        <h1>ERP 数据管理平台</h1>
+                        <p>从左侧菜单选择一个表，查看其数据内容</p>
+                        <div class="welcome-stats">
+                            <div class="stat-card">
+                                <div class="stat-num">{{ all_tables|length }}</div>
+                                <div class="stat-label">数据表总数</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-num">{{ modules|length }}</div>
+                                <div class="stat-label">功能模块</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-num">{{ modules|sum(attribute='count') }}</div>
+                                <div class="stat-label">业务表</div>
+                            </div>
+                        </div>
+                    </div>
+                {% endif %}
+            </main>
+        </div>
+    </div>
+
+    <!-- 新增/编辑 Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal()"></div>
+    <div class="modal" id="dataModal">
+        <div class="modal-header">
+            <h3 id="modalTitle">新增记录</h3>
+            <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+        <form id="dataForm" onsubmit="submitForm(event)">
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-cancel" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn btn-primary" id="modalSubmitBtn">保存</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- 删除确认 Modal -->
+    <div class="modal-overlay" id="deleteOverlay" onclick="closeDeleteModal()"></div>
+    <div class="modal modal-sm" id="deleteModal">
+        <div class="modal-header">
+            <h3>确认删除</h3>
+            <button class="modal-close" onclick="closeDeleteModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p>确定要删除这条记录吗？此操作不可撤销。</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-cancel" onclick="closeDeleteModal()">取消</button>
+            <button type="button" class="btn btn-danger" id="confirmDeleteBtn" onclick="doDelete()">确认删除</button>
+        </div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ========== 侧边栏 ==========
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+        }
+
+        function toggleGroup(header) {
+            const items = header.nextElementSibling;
+            const icon = header.querySelector('.menu-group-icon');
+            items.classList.toggle('collapsed');
+            icon.textContent = items.classList.contains('collapsed') ? '▶' : '▼';
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const active = document.querySelector('.menu-item.active');
+            if (active) {
+                const group = active.closest('.menu-group');
+                if (group) {
+                    const items = group.querySelector('.menu-group-items');
+                    const icon = group.querySelector('.menu-group-icon');
+                    items.classList.remove('collapsed');
+                    icon.textContent = '▼';
+                    active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
+            }
+        });
+
+        function filterTables() {
+            const query = document.getElementById('tableSearch').value.toLowerCase();
+            document.querySelectorAll('.menu-item').forEach(item => {
+                const name = item.textContent.toLowerCase();
+                item.style.display = name.includes(query) ? '' : 'none';
+            });
+            document.querySelectorAll('.menu-group').forEach(group => {
+                const visible = Array.from(group.querySelectorAll('.menu-item')).some(el => el.style.display !== 'none');
+                group.style.display = visible || !query ? '' : 'none';
+            });
+        }
+
+        function changePageSize(table, size) {
+            const params = new URLSearchParams(window.location.search);
+            params.set('page_size', size);
+            params.set('page', '1');
+            window.location.href = '/table/' + table + '?' + params.toString();
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                document.getElementById('tableSearch').focus();
+            }
+            if (e.key === 'Escape') {
+                closeModal();
+                closeDeleteModal();
+            }
+        });
+
+        // ========== CRUD 数据 ==========
+        const columns = {{ columns | tojson | safe }};
+        const rows = {{ rows | tojson | safe }};
+        const hasPk = {{ 'true' if has_pk else 'false' }};
+        let currentMode = 'add'; // 'add' or 'edit'
+        let deleteTarget = null;
+
+        // ========== 打开新增 Modal ==========
+        function openAddModal() {
+            currentMode = 'add';
+            document.getElementById('modalTitle').textContent = '新增记录';
+            document.getElementById('modalSubmitBtn').textContent = '新增';
+
+            const body = document.getElementById('modalBody');
+            body.innerHTML = '';
+            columns.forEach(col => {
+                if (col.name === 'rowid') return;
+                const wrapper = document.createElement('div');
+                wrapper.className = 'form-group';
+                wrapper.innerHTML = `
+                    <label>${col.name} <span class="form-col-type">${col.type}</span>${col.pk ? ' <span class="col-pk-inline">PK</span>' : ''}</label>
+                    <input type="${col.type.toLowerCase() === 'integer' || col.type.toLowerCase() === 'real' || col.type.toLowerCase() === 'numeric' ? 'number' : 'text'}"
+                           name="${col.name}"
+                           class="form-input"
+                           placeholder="${col.pk ? '主键（可选自动生成）' : ''}" />
+                `;
+                body.appendChild(wrapper);
+            });
+
+            document.getElementById('modalOverlay').classList.add('show');
+            document.getElementById('dataModal').classList.add('show');
+        }
+
+        // ========== 打开编辑 Modal ==========
+        function openEditModal(tableName, rowIndex) {
+            currentMode = 'edit';
+            const row = rows[rowIndex];
+            editingRowData = row;
+            if (!row) return;
+
+            document.getElementById('modalTitle').textContent = '编辑记录';
+            document.getElementById('modalSubmitBtn').textContent = '保存修改';
+
+            const body = document.getElementById('modalBody');
+            body.innerHTML = '';
+            columns.forEach(col => {
+                if (col.name === 'rowid') return;
+                const val = row[col.name];
+                const wrapper = document.createElement('div');
+                wrapper.className = 'form-group';
+
+                let inputType = 'text';
+                if (col.type.toLowerCase() === 'integer' || col.type.toLowerCase() === 'real' || col.type.toLowerCase() === 'numeric') {
+                    inputType = 'number';
+                }
+
+                const isReadonly = col.pk ? true : false;
+                wrapper.innerHTML = `
+                    <label>${col.name} <span class="form-col-type">${col.type}</span>${col.pk ? ' <span class="col-pk-inline">PK</span>' : ''}</label>
+                    <input type="${inputType}"
+                           name="${col.name}"
+                           class="form-input"
+                           value="${val !== null && val !== undefined ? val : ''}"
+                           ${isReadonly ? 'readonly' : ''} />
+                `;
+                body.appendChild(wrapper);
+            });
+
+            document.getElementById('modalOverlay').classList.add('show');
+            document.getElementById('dataModal').classList.add('show');
+        }
+
+        // ========== 关闭 Modal ==========
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.remove('show');
+            document.getElementById('dataModal').classList.remove('show');
+        }
+
+        // ========== 提交表单 ==========
+        let editingRowData = null; // 编辑模式下保存当前行的完整数据
+
+        async function submitForm(event) {
+            event.preventDefault();
+            const form = document.getElementById('dataForm');
+            const formData = new FormData(form);
+            const data = {};
+            formData.forEach((val, key) => {
+                if (val === '') {
+                    data[key] = null;
+                } else {
+                    const num = Number(val);
+                    data[key] = isNaN(num) ? val : num;
+                }
+            });
+
+            // 编辑无 PK 表时，传入 rowid
+            if (currentMode === 'edit' && !hasPk && editingRowData && editingRowData.rowid !== undefined) {
+                data.rowid = editingRowData.rowid;
+            }
+
+            const tableName = window.location.pathname.replace('/table/', '');
+            const url = currentMode === 'add'
+                ? `/api/table/${tableName}/insert`
+                : `/api/table/${tableName}/update`;
+
+            try {
+                const resp = await fetch(url, {
+                    method: currentMode === 'add' ? 'POST' : 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    closeModal();
+                    // 刷新页面
+                    setTimeout(() => window.location.reload(), 500);
+                } else {
+                    showToast('操作失败: ' + result.message, 'error');
+                }
+            } catch (err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        }
+
+        // ========== 删除操作 ==========
+        function confirmDelete(tableName, rowIndex) {
+            const row = rows[rowIndex];
+            if (!row) return;
+
+            if (hasPk) {
+                const pkCols = columns.filter(c => c.pk);
+                if (pkCols.length === 0) {
+                    showToast('该表没有主键，无法删除', 'error');
+                    return;
+                }
+                deleteTarget = { tableName, pkData: {} };
+                pkCols.forEach(c => { deleteTarget.pkData[c.name] = row[c.name]; });
+            } else {
+                if (row.rowid === undefined) {
+                    showToast('无法获取 rowid', 'error');
+                    return;
+                }
+                deleteTarget = { tableName, pkData: { rowid: row.rowid } };
+            }
+
+            document.getElementById('deleteOverlay').classList.add('show');
+            document.getElementById('deleteModal').classList.add('show');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteOverlay').classList.remove('show');
+            document.getElementById('deleteModal').classList.remove('show');
+            deleteTarget = null;
+        }
+
+        async function doDelete() {
+            if (!deleteTarget) return;
+
+            try {
+                const resp = await fetch(`/api/table/${deleteTarget.tableName}/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(deleteTarget.pkData),
+                });
+                const result = await resp.json();
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    closeDeleteModal();
+                    setTimeout(() => window.location.reload(), 500);
+                } else {
+                    showToast('删除失败: ' + result.message, 'error');
+                }
+            } catch (err) {
+                showToast('网络错误: ' + err.message, 'error');
+            }
+        }
+
+        // ========== Toast 提示 ==========
+        function showToast(msg, type) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => { toast.className = 'toast'; }, 3000);
+        }
+    </script>
+</body>
+</html>
